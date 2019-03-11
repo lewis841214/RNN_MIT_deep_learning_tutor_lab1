@@ -35,9 +35,9 @@ https://juejin.im/post/5b855d016fb9a01a1a27d035
 ![image]https://github.com/lewis841214/RNN_MIT_deep_learning_tutor_lab1/blob/master/dataset_shuffle_buffer_size.png
 或是stack_overflow(https://stackoverflow.com/questions/46444018/meaning-of-buffer-size-in-dataset-map-dataset-prefetch-and-dataset-shuffle)裡面的解答
 By contrast, the buffer_size argument to tf.data.Dataset.shuffle() affects the randomness of the transformation. We designed the Dataset.shuffle() transformation (like the tf.train.shuffle_batch() function that it replaces) to handle datasets that are too large to fit in memory. Instead of shuffling the entire dataset, it maintains a buffer of buffer_size elements, and randomly selects the next element from that buffer (replacing it with the next input element, if one is available). Changing the value of buffer_size affects how uniform the shuffling is: if buffer_size is greater than the number of elements in the dataset, you get a uniform shuffle; if it is 1 then you get no shuffling at all. For very large datasets, a typical "good enough" approach is to randomly shard the data into multiple files once before training, then shuffle the filenames uniformly, and then use a smaller shuffle buffer. However, the appropriate choice will depend on the exact nature of your training job.
-為什麼tensorflow的buffer這樣設計?因為他的data_adapter吃資料的方式就是，一次吃一定量的資料，所以他shuffle的方式並不能一次輸入整個dataset然後對datasetshuffle，而是一次吃一個buffer_size，然後從中隨機輸出
+為什麼tensorflow的buffer這樣設計?因為他的data_adapter吃資料的方式就是，一次吃一定量的資料，所以他shuffle的方式並不能一次輸入整個dataset然後對dataset shuffle，而是一次吃一個buffer_size，然後從中隨機輸出
 
-當初我會認為說，這個tutor中使用buffer就是一個把妳data用壞的方式。所以當初一直看不懂shuffle的原理到底是什麼。
+當初我會認為說，這個tutor中使用buffer就是一個把妳data用壞的方式(因為我以為他是一次輸出一個data，所以shuffle會壞了音符的順序，但他其實一次輸出的是之前已經弄好的element)。所以當初一直看不懂shuffle的原理到底是什麼。
 但其實我搞錯了，因為現在這個dataset吐出來的東西，一次是(batch_size,sequence_length)的大小，也就是說，他是吃了buffer_size大小的(batch_size,sequence_length)這個東西，例如吃了1000個這個，然後再隨機輸出一個，並不會打壞我們的data，這樣其實蠻好的!
 
 
@@ -64,3 +64,35 @@ rnn_units = 1024
 ![image](https://github.com/lewis841214/RNN_MIT_deep_learning_tutor_lab1/blob/master/ht.png)
 可以看出，ht[i]屬於-1 至 1之間，也就是說若把-1 跟1 算成兩個資訊，其可以儲存之資訊量為2^1024
 
+接下來這邊就是重點了，要build我們的model了!
+```
+def build_model(vocab_size, embedding_dim, rnn_units, batch_size):
+  model = tf.keras.Sequential([
+      #first layer, an embedding layer
+    tf.keras.layers.Embedding(vocab_size, embedding_dim, 
+                              batch_input_shape=[batch_size, None]),
+    LSTM(rnn_units ), # TODO: Define the dimensionality of the RNN
+    tf.keras.layers.Dense(vocab_size) # TODO: Define the dimensionality of the Dense layer
+  ])
+
+  return model
+########################
+#observing the embbeding method
+def build_model2(vocab_size, embedding_dim, rnn_units, batch_size):
+  model = tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size, embedding_dim, 
+                              batch_input_shape=[batch_size, 100]),
+  ])
+
+  return model
+```
+這邊要注意的是LSTM他model在build的過程其實跟一般的dense layer 並不一樣，妳可以觀察到，他在中間只塞了一個
+LSTM(rnn_units ),
+這邊rnn_inits並不代表他有幾顆LSTM，而是代表他輸出ht的向量空間大小(剛剛有解釋請看圖)，這邊代表的是一顆LSTM。
+但你一定會感覺到奇怪，如果這邊只有一棵LSTM，為什麼下面model summary
+![image]https://github.com/lewis841214/RNN_MIT_deep_learning_tutor_lab1/blob/master/modelSummary.png
+會是看起來LSTM的顆數為64*(input_length, None代表是妳帶入多少就是多少)
+
+其實LSTM是一個sequencial unit，他每次都只能帶入一個值，然後自我更新(input ht，變成一個新的東西，在帶入xt+1)，他並不能平行處理，所以說他是一顆LSTM，一直吃值然後自我更新，在去弄下一個。
+這也就是為什麼我們input_lenhth要設成None，這樣我們無論要帶入多長的大小都沒關係。很ㄅㄧㄤˋ
+剩下的部分就很trivial了。
